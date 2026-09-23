@@ -98,7 +98,32 @@ def fetch_news(limit_per_feed: int = 5) -> list[dict]:
 
     items.sort(key=sort_key, reverse=True)
     return items
+def fetch_economic_calendar(days_ahead: int = 7) -> list[dict]:
+    """Fetch upcoming high-impact economic events.
 
+    Uses biquote's MetaTrader 5 calendar feed. Returns a list of dicts:
+        {"time", "country", "event", "importance", "actual", "forecast", "previous"}
+    """
+    import biquote
+
+    try:
+        events = biquote.economic_calendar(days_ahead=days_ahead)
+    except Exception as e:
+        print(f"[calendar] failed: {e}")
+        return []
+
+    out = []
+    for ev in events:
+        out.append({
+            "time": ev.get("date", ""),
+            "country": ev.get("country", ""),
+            "event": ev.get("event", ""),
+            "importance": ev.get("importance", ""),
+            "actual": ev.get("actual", ""),
+            "forecast": ev.get("forecast", ""),
+            "previous": ev.get("previous", ""),
+        })
+    return out
 
 if __name__ == "__main__":
     print("=== Prices ===")
@@ -114,3 +139,12 @@ if __name__ == "__main__":
     print("=== News ===")
     for item in fetch_news(limit_per_feed=2)[:8]:
         print(f"[{item['source']:18s}] {item['title'][:70]}")
+
+    print()
+    print("=== Calendar ===")
+    events = fetch_economic_calendar(days_ahead=7)
+    if not events:
+        print("(no events — see error above)")
+    else:
+        for ev in events[:10]:
+            print(f"[{ev['country']:4s}] {ev['time']:20s} | {ev['event'][:50]:50s} | {ev['importance']}")
