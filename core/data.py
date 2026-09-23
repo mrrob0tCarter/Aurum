@@ -11,35 +11,34 @@ import yfinance as yf
 
 
 # Ticker map for the assets Aurum tracks.
-# yfinance symbols, verified as of the current yfinance release.
 TICKERS = {
-    "DXY": "DX-Y.NYB",       # US Dollar Index
+    "DXY": "DX-Y.NYB",
     "EURUSD": "EURUSD=X",
     "GBPUSD": "GBPUSD=X",
     "USDJPY": "USDJPY=X",
     "AUDUSD": "AUDUSD=X",
-    "GOLD": "GC=F",          # Gold futures
-    "SILVER": "SI=F",        # Silver futures
-    "WTI": "CL=F",           # Crude Oil WTI futures
+    "GOLD": "GC=F",
+    "SILVER": "SI=F",
+    "WTI": "CL=F",
     "BTC": "BTC-USD",
     "ETH": "ETH-USD",
-    "US10Y": "^TNX",         # US 10Y Treasury yield
-    "VIX": "^VIX",           # Volatility index
+    "US10Y": "^TNX",
+    "VIX": "^VIX",
+}
+
+
+# RSS feeds for news aggregation.
+NEWS_FEEDS = {
+    "ForexLive":        "https://www.forexlive.com/feed/news",
+    "Investing.com":    "https://www.investing.com/rss/news_1.rss",
+    "Federal Reserve":  "https://www.federalreserve.gov/feeds/press_all.xml",
+    "Yahoo Finance":    "https://finance.yahoo.com/news/rssindex",
+    "MarketWatch":      "https://feeds.content.dowjones.io/public/rss/mw_topstories",
 }
 
 
 def fetch_prices(symbol: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
-    """Fetch OHLCV history for a single Aurum asset.
-
-    Args:
-        symbol: One of the keys in TICKERS (e.g. "DXY", "GOLD").
-        period: yfinance period string ("1mo", "6mo", "1y", "2y", "5y", "max").
-        interval: yfinance interval ("1d", "1h", "1wk").
-
-    Returns:
-        DataFrame indexed by timestamp (UTC), with columns:
-        open, high, low, close, volume
-    """
+    """Fetch OHLCV history for a single Aurum asset."""
     if symbol not in TICKERS:
         raise ValueError(f"Unknown symbol '{symbol}'. Known: {list(TICKERS)}")
 
@@ -55,15 +54,12 @@ def fetch_prices(symbol: str, period: str = "2y", interval: str = "1d") -> pd.Da
     if df.empty:
         raise RuntimeError(f"No data returned for {symbol} ({ticker}).")
 
-    # yfinance returns a MultiIndex when there's one ticker but newer versions
-    # sometimes flatten it. Normalize either way.
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
     df = df.rename(columns=str.lower)
     df = df[["open", "high", "low", "close", "volume"]].copy()
 
-    # Force UTC timezone-aware index.
     if df.index.tz is None:
         df.index = df.index.tz_localize("UTC")
     else:
@@ -76,8 +72,36 @@ def fetch_prices(symbol: str, period: str = "2y", interval: str = "1d") -> pd.Da
     return df
 
 
+def fetch_news(limit_per_feed: int = 5) -> list[dict]:
+    """Fetch latest headlines from configured RSS feeds."""
+    import feedparser
+
+    items: list[dict] = []
+
+    for source, url in NEWS_FEEDS.items():
+        try:
+            parsed = feedparser.parse(url)
+            for entry in parsed.entries[:limit_per_feed]:
+                items.append({
+                    "source": source,
+                    "title": entry.get("title", "").strip(),
+                    "link": entry.get("link", ""),
+                    "published": entry.get("published", ""),
+                    "published_parsed": entry.get("published_parsed"),
+                })
+        except Exception as e:
+            print(f"[news] {source} failed: {e}")
+
+    def sort_key(item):
+        p = item.get("published_parsed")
+        return datetime(*p[:6]) if p else datetime.min
+
+    items.sort(key=sort_key, reverse=True)
+    return items
+
+
 if __name__ == "__main__":
-    # Quick manual test when running this file directly.
+    print("=== Prices ===")
     for sym in ["DXY", "EURUSD", "GOLD", "BTC"]:
         try:
             data = fetch_prices(sym, period="6mo")
@@ -85,3 +109,8 @@ if __name__ == "__main__":
             print(f"{sym:8s} | rows: {len(data):4d} | last close: {last_close:.4f}")
         except Exception as e:
             print(f"{sym:8s} | ERROR: {e}")
+
+    print()
+    print("=== News ===")
+    for item in fetch_news(limit_per_feed=2)[:8]:
+        print(f"[{item['source']:18s}] {item['title'][:70]}")
